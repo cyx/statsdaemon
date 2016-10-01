@@ -1,5 +1,7 @@
 package main
 
+/*
+
 import (
 	"bytes"
 	"flag"
@@ -826,3 +828,4 @@ func BenchmarkPacketHandlerSet(b *testing.B) {
 		packetHandler(d2)
 	}
 }
+*/

@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/heroku/metaas/v2/schema"
 )
 
 const (
@@ -197,29 +200,12 @@ func submit(deadline time.Time) error {
 		return nil
 	}
 
-	client, err := net.Dial("tcp", *graphiteAddress)
-	if err != nil {
-		if *debug {
-			log.Printf("WARNING: resetting counters when in debug mode")
-			processCounters(&buffer, now)
-			processGauges(&buffer, now)
-			processTimers(&buffer, now, percentThreshold)
-			processSets(&buffer, now)
-		}
-		errmsg := fmt.Sprintf("dialing %s failed - %s", *graphiteAddress, err)
-		return errors.New(errmsg)
-	}
-	defer client.Close()
+	obs := &schema.Observations{}
 
-	err = client.SetDeadline(deadline)
-	if err != nil {
-		return err
-	}
-
-	num += processCounters(&buffer, now)
-	num += processGauges(&buffer, now)
-	num += processTimers(&buffer, now, percentThreshold)
-	num += processSets(&buffer, now)
+	num += processCounters(obs, now)
+	num += processGauges(obs, now)
+	num += processTimers(obs, now, percentThreshold)
+	num += processSets(obs, now)
 	if num == 0 {
 		return nil
 	}
@@ -233,29 +219,43 @@ func submit(deadline time.Time) error {
 		}
 	}
 
-	_, err = client.Write(buffer.Bytes())
+	_, err := http.Post(*graphiteAddress, "application/octet-stream", &buffer)
 	if err != nil {
 		errmsg := fmt.Sprintf("failed to write stats - %s", err)
 		return errors.New(errmsg)
 	}
 
 	log.Printf("sent %d stats to %s", num, *graphiteAddress)
-
 	return nil
 }
 
-func processCounters(buffer *bytes.Buffer, now int64) int64 {
+func processCounters(obs *schema.Observations, now int64) int64 {
 	var num int64
 	// continue sending zeros for counters for a short period of time even if we have no new data
 	for bucket, value := range counters {
-		fmt.Fprintf(buffer, "%s %s %d\n", bucket, strconv.FormatFloat(value, 'f', -1, 64), now)
+		obs.Add(&schema.Observation{
+			Timestamp: now,
+			Type:      schema.MetricType_COUNTER,
+			Measurements: &schema.Measurements{
+				Name:  bucket,
+				Value: value,
+			},
+		})
+		// fmt.Fprintf(buffer, "%s %s %d\\n", bucket, strconv.FormatFloat(value, 'f', -1, 64), now)
 		delete(counters, bucket)
 		countInactivity[bucket] = 0
 		num++
 	}
 	for bucket, purgeCount := range countInactivity {
 		if purgeCount > 0 {
-			fmt.Fprintf(buffer, "%s 0 %d\n", bucket, now)
+			obs.Add(&schema.Observation{
+				Timestamp: now,
+				Type:      schema.MetricType_COUNTER,
+				Measurements: &schema.Measurements{
+					Name:  bucket,
+					Value: 0,
+				},
+			})
 			num++
 		}
 		countInactivity[bucket] += 1
@@ -266,11 +266,19 @@ func processCounters(buffer *bytes.Buffer, now int64) int64 {
 	return num
 }
 
-func processGauges(buffer *bytes.Buffer, now int64) int64 {
+func processGauges(obs *schema.Observations, now int64) int64 {
 	var num int64
 
 	for bucket, currentValue := range gauges {
-		fmt.Fprintf(buffer, "%s %s %d\n", bucket, strconv.FormatFloat(currentValue, 'f', -1, 64), now)
+		obs.Add(&schema.Observation{
+			Timestamp: now,
+			Type:      schema.MetricType_GAUGE,
+			Measurements: &schema.Measurements{
+				Name:  bucket,
+				Value: currentValue,
+			},
+		})
+		// fmt.Fprintf(buffer, "%s %s %d\\n", bucket, strconv.FormatFloat(currentValue, 'f', -1, 64), now)
 		num++
 		if *deleteGauges {
 			delete(gauges, bucket)
@@ -279,7 +287,7 @@ func processGauges(buffer *bytes.Buffer, now int64) int64 {
 	return num
 }
 
-func processSets(buffer *bytes.Buffer, now int64) int64 {
+func processSets(obs *schema.Observations, now int64) int64 {
 	num := int64(len(sets))
 	for bucket, set := range sets {
 
@@ -288,13 +296,21 @@ func processSets(buffer *bytes.Buffer, now int64) int64 {
 			uniqueSet[str] = true
 		}
 
-		fmt.Fprintf(buffer, "%s %d %d\n", bucket, len(uniqueSet), now)
+		obs.Add(&schema.Observation{
+			Timestamp: now,
+			Type:      schema.MetricType_GAUGE,
+			Measurements: &schema.Measurements{
+				Name:  bucket,
+				Value: float64(len(uniqueSet)),
+			},
+		})
+		// fmt.Fprintf(buffer, "%s %d %d\\n", bucket, len(uniqueSet), now)
 		delete(sets, bucket)
 	}
 	return num
 }
 
-func processTimers(buffer *bytes.Buffer, now int64, pctls Percentiles) int64 {
+func processTimers(obs *schema.Observations, now int64, pctls Percentiles) int64 {
 	var num int64
 	for bucket, timer := range timers {
 		bucketWithoutPostfix := bucket[:len(bucket)-len(*postfix)]
@@ -338,18 +354,39 @@ func processTimers(buffer *bytes.Buffer, now int64, pctls Percentiles) int64 {
 				tmpl = "%s.lower_%s%s %s %d\n"
 				pctstr = pct.str[1:]
 			}
-			threshold_s := strconv.FormatFloat(maxAtThreshold, 'f', -1, 64)
-			fmt.Fprintf(buffer, tmpl, bucketWithoutPostfix, pctstr, *postfix, threshold_s, now)
+			// threshold_s := strconv.FormatFloat(maxAtThreshold, 'f', -1, 64)
+			obs.Add(&schema.Observation{
+				Timestamp: now,
+				Type:      schema.MetricType_GAUGE,
+				Measurements: &schema.Measurements{
+					Name:  fmt.Sprintf(tmpl, bucketWithoutPostfix, pctstr),
+					Value: maxAtThreshold,
+				},
+			})
+			// fmt.Fprintf(buffer, tmpl, bucketWithoutPostfix, pctstr, *postfix, threshold_s, now)
 		}
 
-		mean_s := strconv.FormatFloat(mean, 'f', -1, 64)
-		max_s := strconv.FormatFloat(max, 'f', -1, 64)
-		min_s := strconv.FormatFloat(min, 'f', -1, 64)
+		// mean_s := strconv.FormatFloat(mean, 'f', -1, 64)
+		// max_s := strconv.FormatFloat(max, 'f', -1, 64)
+		// min_s := strconv.FormatFloat(min, 'f', -1, 64)
 
-		fmt.Fprintf(buffer, "%s.mean%s %s %d\n", bucketWithoutPostfix, *postfix, mean_s, now)
-		fmt.Fprintf(buffer, "%s.upper%s %s %d\n", bucketWithoutPostfix, *postfix, max_s, now)
-		fmt.Fprintf(buffer, "%s.lower%s %s %d\n", bucketWithoutPostfix, *postfix, min_s, now)
-		fmt.Fprintf(buffer, "%s.count%s %d %d\n", bucketWithoutPostfix, *postfix, count, now)
+		obs.Add(&schema.Observation{
+			Timestamp: now,
+			Type:      schema.MetricType_GAUGE,
+			Measurements: &schema.Measurements{
+				Names: []string{
+					fmt.Sprintf("%s.mean%s", bucketWithoutPostfix, *postfix),
+					fmt.Sprintf("%s.upper%s", bucketWithoutPostfix, *postfix),
+					fmt.Sprintf("%s.lower%s", bucketWithoutPostfix, *postfix),
+					fmt.Sprintf("%s.count%s", bucketWithoutPostfix, *postfix),
+				},
+				Values: []float64{mean, max, min, float64(count)},
+			},
+		})
+		// fmt.Fprintf(buffer, "%s.mean%s %s %d\\n", bucketWithoutPostfix, *postfix, mean_s, now)
+		// fmt.Fprintf(buffer, "%s.upper%s %s %d\\n", bucketWithoutPostfix, *postfix, max_s, now)
+		// fmt.Fprintf(buffer, "%s.lower%s %s %d\\n", bucketWithoutPostfix, *postfix, min_s, now)
+		// fmt.Fprintf(buffer, "%s.count%s %d %d\\n", bucketWithoutPostfix, *postfix, count, now)
 
 		delete(timers, bucket)
 	}
