@@ -89,11 +89,11 @@ var (
 	serviceAddress    = flag.String("address", ":8125", "UDP service address")
 	tcpServiceAddress = flag.String("tcpaddr", "", "TCP service address, if set")
 	maxUdpPacketSize  = flag.Int64("max-udp-packet-size", 1472, "Maximum UDP packet size")
-	graphiteAddress   = flag.String("graphite", "127.0.0.1:2003", "Graphite service address (or - to disable)")
+	exportURL         = flag.String("export-url", "127.0.0.1:2003", "URL to send observations (or - to disable)")
 	flushInterval     = flag.Int64("flush-interval", 10, "Flush interval (seconds)")
-	debug             = flag.Bool("debug", false, "print statistics sent to graphite")
+	debug             = flag.Bool("debug", false, "print statistics sent")
 	showVersion       = flag.Bool("version", false, "print version string")
-	deleteGauges      = flag.Bool("delete-gauges", true, "don't send values to graphite for inactive gauges, as opposed to sending the previous value")
+	deleteGauges      = flag.Bool("delete-gauges", true, "don't send values for inactive gauges, as opposed to sending the previous value")
 	persistCountKeys  = flag.Int64("persist-count-keys", 60, "number of flush-intervals to persist count keys")
 	receiveCounter    = flag.String("receive-counter", "", "Metric name for total metrics received per interval")
 	percentThreshold  = Percentiles{}
@@ -196,7 +196,7 @@ func submit(deadline time.Time) error {
 
 	now := time.Now().Unix()
 
-	if *graphiteAddress == "-" {
+	if *exportURL == "-" {
 		return nil
 	}
 
@@ -225,7 +225,7 @@ func submit(deadline time.Time) error {
 		return errors.New(errmsg)
 	}
 
-	log.Printf("sent %d stats to %s", num, *graphiteAddress)
+	log.Printf("sent %d stats to export destination", num)
 	return nil
 }
 
@@ -620,7 +620,7 @@ var obsClient client.Client
 
 func main() {
 	flag.Parse()
-	obsClient = client.New(*graphiteAddress)
+	obsClient = client.New(*exportURL)
 
 	if *showVersion {
 		fmt.Printf("statsdaemon v%s (built w/%s)\n", VERSION, runtime.Version())
