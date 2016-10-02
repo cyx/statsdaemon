@@ -9,7 +9,6 @@ import (
 	"log"
 	"math"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -19,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/heroku/metaas/v2/api/client"
 	"github.com/heroku/metaas/v2/schema"
 )
 
@@ -219,7 +219,7 @@ func submit(deadline time.Time) error {
 		}
 	}
 
-	_, err := http.Post(*graphiteAddress, "application/octet-stream", &buffer)
+	err := obsClient.PostObservations(obs)
 	if err != nil {
 		errmsg := fmt.Sprintf("failed to write stats - %s", err)
 		return errors.New(errmsg)
@@ -616,8 +616,11 @@ func tcpListener() {
 	}
 }
 
+var obsClient client.Client
+
 func main() {
 	flag.Parse()
+	obsClient = client.New(*graphiteAddress)
 
 	if *showVersion {
 		fmt.Printf("statsdaemon v%s (built w/%s)\n", VERSION, runtime.Version())
