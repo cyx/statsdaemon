@@ -90,6 +90,7 @@ var (
 	tcpServiceAddress = flag.String("tcpaddr", "", "TCP service address, if set")
 	maxUdpPacketSize  = flag.Int64("max-udp-packet-size", 1472, "Maximum UDP packet size")
 	exportURL         = flag.String("export-url", "127.0.0.1:2003", "URL to send observations (or - to disable)")
+	instance          = flag.String("instance", "", "Instance parameter")
 	flushInterval     = flag.Int64("flush-interval", 10, "Flush interval (seconds)")
 	debug             = flag.Bool("debug", false, "print statistics sent")
 	showVersion       = flag.Bool("version", false, "print version string")
@@ -219,7 +220,7 @@ func submit(deadline time.Time) error {
 		}
 	}
 
-	err := obsClient.PostObservations(obs)
+	err := obsClient.PostObservations(obs, client.Opts{Dyno: *instance})
 	if err != nil {
 		errmsg := fmt.Sprintf("failed to write stats - %s", err)
 		return errors.New(errmsg)
@@ -234,6 +235,7 @@ func processCounters(obs *schema.Observations, now int64) int64 {
 	// continue sending zeros for counters for a short period of time even if we have no new data
 	for bucket, value := range counters {
 		obs.Add(&schema.Observation{
+			Source:    bucket,
 			Timestamp: now,
 			Type:      schema.MetricType_COUNTER,
 			Measurements: &schema.Measurements{
@@ -249,6 +251,7 @@ func processCounters(obs *schema.Observations, now int64) int64 {
 	for bucket, purgeCount := range countInactivity {
 		if purgeCount > 0 {
 			obs.Add(&schema.Observation{
+				Source:    bucket,
 				Timestamp: now,
 				Type:      schema.MetricType_COUNTER,
 				Measurements: &schema.Measurements{
@@ -271,6 +274,7 @@ func processGauges(obs *schema.Observations, now int64) int64 {
 
 	for bucket, currentValue := range gauges {
 		obs.Add(&schema.Observation{
+			Source:    bucket,
 			Timestamp: now,
 			Type:      schema.MetricType_GAUGE,
 			Measurements: &schema.Measurements{
@@ -297,6 +301,7 @@ func processSets(obs *schema.Observations, now int64) int64 {
 		}
 
 		obs.Add(&schema.Observation{
+			Source:    bucket,
 			Timestamp: now,
 			Type:      schema.MetricType_GAUGE,
 			Measurements: &schema.Measurements{
@@ -356,6 +361,7 @@ func processTimers(obs *schema.Observations, now int64, pctls Percentiles) int64
 			}
 			// threshold_s := strconv.FormatFloat(maxAtThreshold, 'f', -1, 64)
 			obs.Add(&schema.Observation{
+				Source:    bucket,
 				Timestamp: now,
 				Type:      schema.MetricType_GAUGE,
 				Measurements: &schema.Measurements{
@@ -371,6 +377,7 @@ func processTimers(obs *schema.Observations, now int64, pctls Percentiles) int64
 		// min_s := strconv.FormatFloat(min, 'f', -1, 64)
 
 		obs.Add(&schema.Observation{
+			Source:    bucket,
 			Timestamp: now,
 			Type:      schema.MetricType_GAUGE,
 			Measurements: &schema.Measurements{
