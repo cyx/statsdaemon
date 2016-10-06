@@ -235,9 +235,8 @@ func processCounters(obs *schema.Observations, now int64) int64 {
 	// continue sending zeros for counters for a short period of time even if we have no new data
 	for bucket, value := range counters {
 		obs.Add(&schema.Observation{
-			Source:    bucket,
 			Timestamp: now,
-			Type:      schema.MetricType_COUNTER,
+			Type:      schema.MetricType_GAUGE,
 			Measurements: &schema.Measurements{
 				Name:  bucket,
 				Value: value,
@@ -251,9 +250,8 @@ func processCounters(obs *schema.Observations, now int64) int64 {
 	for bucket, purgeCount := range countInactivity {
 		if purgeCount > 0 {
 			obs.Add(&schema.Observation{
-				Source:    bucket,
 				Timestamp: now,
-				Type:      schema.MetricType_COUNTER,
+				Type:      schema.MetricType_GAUGE,
 				Measurements: &schema.Measurements{
 					Name:  bucket,
 					Value: 0,
@@ -274,7 +272,6 @@ func processGauges(obs *schema.Observations, now int64) int64 {
 
 	for bucket, currentValue := range gauges {
 		obs.Add(&schema.Observation{
-			Source:    bucket,
 			Timestamp: now,
 			Type:      schema.MetricType_GAUGE,
 			Measurements: &schema.Measurements{
@@ -301,7 +298,6 @@ func processSets(obs *schema.Observations, now int64) int64 {
 		}
 
 		obs.Add(&schema.Observation{
-			Source:    bucket,
 			Timestamp: now,
 			Type:      schema.MetricType_GAUGE,
 			Measurements: &schema.Measurements{
@@ -361,7 +357,6 @@ func processTimers(obs *schema.Observations, now int64, pctls Percentiles) int64
 			}
 			// threshold_s := strconv.FormatFloat(maxAtThreshold, 'f', -1, 64)
 			obs.Add(&schema.Observation{
-				Source:    bucket,
 				Timestamp: now,
 				Type:      schema.MetricType_GAUGE,
 				Measurements: &schema.Measurements{
@@ -377,7 +372,6 @@ func processTimers(obs *schema.Observations, now int64, pctls Percentiles) int64
 		// min_s := strconv.FormatFloat(min, 'f', -1, 64)
 
 		obs.Add(&schema.Observation{
-			Source:    bucket,
 			Timestamp: now,
 			Type:      schema.MetricType_GAUGE,
 			Measurements: &schema.Measurements{
